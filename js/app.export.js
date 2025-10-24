@@ -1886,6 +1886,10 @@ var bundled = (__zeoImport ? __zeoImport + '\n' : '') + parts.join('\n\n') + '\n
       // 若使用到了 BoutiqueBitmap9x9，则在导出样式块顶部追加 @import（部分宿主不解析 <link>）
       var __needBoutiqueImport = (usedFamilies && usedFamilies.has('BoutiqueBitmap9x9'));
       var __zeoImport = __needBoutiqueImport ? "@import url('https://fontsapi.zeoseven.com/65/main/result.css');" : '';
+      // 运行时字体引入兜底：当预抓取 Google Fonts 失败时，把其 @import 挂到导出样式顶部
+      var __gfImports = [];
+      // 运行时字体链接兜底：为不能内联的字体族添加 <link rel="stylesheet">（避免某些宿主屏蔽 @import）
+      var __gfLinks = [];
 
       if (usedFamilies && usedFamilies.size > 0) {
         var missing = [];
@@ -1902,13 +1906,21 @@ var bundled = (__zeoImport ? __zeoImport + '\n' : '') + parts.join('\n\n') + '\n
             gfCss = await inlineUrlsStrict(gfCss, url);
             cssFonts += '\n/* ====== inlined: google fonts ['+ fam +'] ====== */\n' + gfCss + '\n';
           } catch (gfe) {
-            // 在中国大陆/离线环境，访问 fonts.googleapis.com 往往失败；此处直接跳过以避免 “Failed to fetch” 终止导出
+            // 在中国大陆/离线环境，访问 fonts.googleapis.com 往往失败；
+            // 改为在最终样式顶部追加对应的 @import，由浏览器在运行时加载，既避免卡顿又保证字体跟随。
             try { console.warn('[Ny.Export] skip Google Fonts fetch (unavailable):', fam, gfe); } catch(_e){}
+            try { if (url) __gfImports.push(url); } catch(_p){}
+            // 同时追加 <link rel="stylesheet">，以适配部分宿主对 @import 的限制
+            try { if (url) __gfLinks.push(url); } catch(_p2){}
             continue;
           }
         }
+        // 避免过滤后丢失全部 @font-face：保存原始并在空结果时回退
+        var cssFontsOriginal = cssFonts;
         cssFonts = __filterFontsCss(cssFonts, usedFamilies);
-        cssFonts = __filterFontsCssByUsage(cssFonts, usedFamilies, weights, italicsNeeded) || cssFonts;
+        if (!/\S/.test(cssFonts)) { cssFonts = cssFontsOriginal; }
+        var cssFontsAfterUsage = __filterFontsCssByUsage(cssFonts, usedFamilies, weights, italicsNeeded);
+        if (/\S/.test(cssFontsAfterUsage)) { cssFonts = cssFontsAfterUsage; }
       }
 
       // Bundle and validate
@@ -1991,8 +2003,17 @@ var bundled = (__zeoImport ? __zeoImport + '\n' : '') + parts.join('\n\n') + '\n
         '.anim-gloss::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0) 60%);opacity:.4;animation:glossSweep calc(var(--anim-speed,1s)*6) ease-in-out infinite;}',
         '@keyframes glossSweep{0%,100%{opacity:.25}50%{opacity:.5}}'
       ].join('\n');
-/* 汇总为最终注入样式（若使用点阵体，优先在样式顶部加入 @import） */
-var __pre = (__zeoImport ? (__zeoImport + '\n') : '');
+/* 汇总为最终注入样式（若使用点阵体与未能预抓取的 Google 字体，在样式顶部加入 @import） */
+var __pre = '';
+if (__zeoImport) __pre += __zeoImport + '\n';
+try {
+  if (__gfImports && __gfImports.length) {
+    for (var __i=0; __i<__gfImports.length; __i++) {
+      var __u = __gfImports[__i];
+      if (__u && typeof __u === 'string') __pre += "@import url('" + __u + "');\n";
+    }
+  }
+} catch(__eImp){}
 var bundled = __pre + partsEx.join('\n\n') + '\n' + essentialsCss;
 
       var bundledCheck = bundled.replace(/\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\//g, '').trim();
@@ -2005,9 +2026,26 @@ var bundled = __pre + partsEx.join('\n\n') + '\n' + essentialsCss;
         .replace(/<link[^>]+href="ny-[^"]+\.css"[^>]*>\s*/g, '')
         .replace(/<link\b[^>]*data-ny-custom-font=["']true["'][^>]*>\s*/gi, '')
         .replace(/<style\s+id=["']ny-inline-style["'][^>]*>\s*<\/style>\s*/i, '');
+      // 在最终文档头部插入字体预连接与样式链接，保证字体在运行时可加载（即使不内联 .woff2）
+      var __headLinks = '';
+      try {
+        __headLinks += '<link rel="preconnect" href="https://fonts.googleapis.com">\n';
+        __headLinks += '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n';
+        if (__needBoutiqueImport) {
+          __headLinks += '<link rel="stylesheet" href="https://fontsapi.zeoseven.com/65/main/result.css">\n';
+        }
+        if (__gfLinks && __gfLinks.length) {
+          for (var __li = 0; __li < __gfLinks.length; __li++) {
+            var __lu = __gfLinks[__li];
+            if (__lu && typeof __lu === 'string') {
+              __headLinks += '<link rel="stylesheet" href="' + __lu + '">\n';
+            }
+          }
+        }
+      } catch(__eHead){}
       var injected = withoutLinks.replace(
         '</head>',
-        '<style>' + bundled.replace(/<\/style>/gi, '</s' + 'tyle>') + '</style></head>'
+        __headLinks + '<style>' + bundled.replace(/<\/style>/gi, '</s' + 'tyle>') + '</style></head>'
       );
       return injected;
     }
