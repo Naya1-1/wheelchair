@@ -1603,7 +1603,8 @@ var bundled = (__zeoImport ? __zeoImport + '\n' : '') + parts.join('\n\n') + '\n
             out += 'url(' + m[1] + ')';
           } else {
             var abs = toAbsUrl(raw, baseUrl);
-            if (/\.(woff2|woff|ttf|otf|svg|png|jpe?g|gif)(\?|#|$)/i.test(abs)) {
+            // 仅对图片资源内联；字体资源保持为外链，避免大量 .woff2 下载导致卡顿
+            if (/\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(abs)) {
               var dataUrl = await toDataUrlStrict(abs);
               out += 'url(\'' + dataUrl + '\')';
             } else {
@@ -2081,7 +2082,8 @@ var bundled = __pre + partsEx.join('\n\n') + '\n' + essentialsCss;
           var raw = m[1].trim().replace(/^['"]|['"]$/g, '');
           if (/^(data:|about:|chrome:|edge:)/i.test(raw)) return m[0];
           var abs = toAbsUrl(raw);
-          if (!/\.(png|jpe?g|gif|webp|svg|woff2?|ttf|otf)(\?|#|$)/i.test(abs)) return 'url(\'' + abs + '\')';
+          // 仅内联图片；字体保持外链
+          if (!/\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(abs)) return 'url(\'' + abs + '\')';
           var dataUrl = await toDataUrlStrict(abs);
           return 'url(\'' + dataUrl + '\')';
         });
@@ -2095,7 +2097,8 @@ var bundled = __pre + partsEx.join('\n\n') + '\n' + essentialsCss;
           var raw = m[1].trim().replace(/^['"]|['"]$/g, '');
           if (/^(data:|about:|chrome:|edge:)/i.test(raw)) return m[0];
           var abs = toAbsUrl(raw);
-          if (!/\.(png|jpe?g|gif|webp|svg|woff2?|ttf|otf)(\?|#|$)/i.test(abs)) return 'url(\'' + abs + '\')';
+          // 仅内联图片；字体保持外链
+          if (!/\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(abs)) return 'url(\'' + abs + '\')';
           var dataUrl = await toDataUrlStrict(abs);
           return 'url(\'' + dataUrl + '\')';
         });
@@ -2650,43 +2653,22 @@ try {
                   }
 
                   if (typeof __inlineFF !== 'function') {
-  async function __inlineFF(css) {
-    try {
-      var re = /url\(([^)]+)\)/g, out = '', last = 0, m;
-      async function __fetchData(abs) {
-        try {
-          var res = await fetch(abs);
-          if (!res.ok) return null;
-          var buf = await res.arrayBuffer();
-          var bytes = new Uint8Array(buf);
-          var bin = '';
-          for (var i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
-          function __mime(u){
-            var lc = (u||'').toLowerCase();
-            if (lc.endsWith('.woff2')) return 'font/woff2';
-            if (lc.endsWith('.woff')) return 'font/woff';
-            if (lc.endsWith('.ttf')) return 'font/ttf';
-            if (lc.endsWith('.otf')) return 'font/otf';
-            if (lc.endsWith('.svg')) return 'image/svg+xml';
-            return 'application/octet-stream';
-          }
-          var mime = __mime(abs);
-          return 'data:' + mime + ';base64,' + btoa(bin);
-        } catch(_e){ return null; }
-      }
-      while ((m = re.exec(css)) !== null) {
-        out += css.slice(last, m.index);
-        var raw = m[1].trim().replace(/^['"]|['"]$/g,'');
-        if (/^(data:|about:)/i.test(raw)) { out += m[0]; last = re.lastIndex; continue; }
-        var abs = new URL(raw, document.location.href).href;
-        var data = await __fetchData(abs);
-        out += 'url(' + (data ? '\'' + data + '\'' : '\'' + abs + '\'') + ')';
-        last = re.lastIndex;
-      }
-      out += css.slice(last);
-      return out;
-    } catch(_e){ return css || ''; }
-  }
+async function __inlineFF(css) {
+  try {
+    var re = /url\(([^)]+)\)/g, out = '', last = 0, m;
+    while ((m = re.exec(css)) !== null) {
+      out += css.slice(last, m.index);
+      var raw = m[1].trim().replace(/^['"]|['"]$/g,'');
+      if (/^(data:|about:)/i.test(raw)) { out += m[0]; last = re.lastIndex; continue; }
+      var abs = new URL(raw, document.location.href).href;
+      // 保留字体外链，避免大量 .woff2 下载导致卡顿
+      out += 'url(\'' + abs + '\')';
+      last = re.lastIndex;
+    }
+    out += css.slice(last);
+    return out;
+  } catch(_e){ return css || ''; }
+}
 }
 var __ffCss = await __inlineFF(__collectFontFaces(__famSet));if (__ffCss && __ffCss.replace(/\s+/g,'').length){
                     var __safeFf = __ffCss.replace(/<\/style>/gi, '</s' + 'tyle>');
